@@ -19,7 +19,7 @@ COLLECTION_NAME = "libgdx"
 OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
 EMBED_MODEL = "nomic-embed-text"
 LLM_MODEL = os.getenv("LLM_MODEL", "qwen3.5:4b")
-TOP_K = 5  # Number of chunks to retrieve per query
+TOP_K = 4  # Number of chunks to retrieve per query
 
 # ─── Setup Models ────────────────────────────────────────────────────────────
 
@@ -31,7 +31,7 @@ embed_model = OllamaEmbedding(
 llm = Ollama(
     model=LLM_MODEL,
     base_url=OLLAMA_BASE_URL,
-    request_timeout=120.0,
+    request_timeout=300.0,
 )
 
 Settings.embed_model = embed_model
