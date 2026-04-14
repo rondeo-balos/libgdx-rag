@@ -13,9 +13,10 @@ knowledge/
 # Temp repos used during collection
 scripts/.tmp/
 
-# IDE
+# IDE / tools
 .idea/
 .vscode/
+.gemini/
 *.swp
 
 # OS
