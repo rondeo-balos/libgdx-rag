@@ -20,7 +20,7 @@ docker compose run --rm rag python ingest.py
 docker compose up
 ```
 
-API at `http://localhost:8000` — try `curl localhost:8000/health`
+API at `http://localhost:11111` — try `curl localhost:11111/health`
 
 ## Docs
 
