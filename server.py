@@ -9,6 +9,8 @@ Usage:
 """
 
 import os
+import time
+import uuid
 
 import chromadb
 from fastapi import FastAPI, HTTPException
@@ -71,6 +73,8 @@ app = FastAPI(
 )
 
 
+# ─── Original endpoints ─────────────────────────────────────────────────────
+
 class ChatRequest(BaseModel):
     prompt: str
 
@@ -110,3 +114,79 @@ async def chat(request: ChatRequest):
         answer=str(response),
         sources=sources,
     )
+
+
+# ─── OpenAI-compatible API ──────────────────────────────────────────────────
+# This makes the RAG server look like an OpenAI model to Continue.dev.
+# Every message automatically goes through RAG — no @http needed.
+
+class OAIMessage(BaseModel):
+    role: str
+    content: str
+
+
+class OAIChatRequest(BaseModel):
+    model: str = "libgdx-rag"
+    messages: list[OAIMessage]
+    temperature: float = 0.7
+    max_tokens: int | None = None
+    stream: bool = False
+
+
+@app.get("/v1/models")
+async def list_models():
+    """List available models (OpenAI-compatible)."""
+    return {
+        "object": "list",
+        "data": [
+            {
+                "id": "libgdx-rag",
+                "object": "model",
+                "created": int(time.time()),
+                "owned_by": "local",
+            }
+        ],
+    }
+
+
+@app.post("/v1/chat/completions")
+async def openai_chat(request: OAIChatRequest):
+    """OpenAI-compatible chat completions — every message goes through RAG."""
+
+    # Extract the last user message as the query
+    user_message = ""
+    for msg in reversed(request.messages):
+        if msg.role == "user":
+            user_message = msg.content
+            break
+
+    if not user_message.strip():
+        raise HTTPException(status_code=400, detail="No user message found")
+
+    # Run through RAG pipeline
+    response = query_engine.query(user_message)
+    answer = str(response)
+
+    # Return in OpenAI format
+    return {
+        "id": f"chatcmpl-{uuid.uuid4().hex[:12]}",
+        "object": "chat.completion",
+        "created": int(time.time()),
+        "model": "libgdx-rag",
+        "choices": [
+            {
+                "index": 0,
+                "message": {
+                    "role": "assistant",
+                    "content": answer,
+                },
+                "finish_reason": "stop",
+            }
+        ],
+        "usage": {
+            "prompt_tokens": 0,
+            "completion_tokens": 0,
+            "total_tokens": 0,
+        },
+    }
+
