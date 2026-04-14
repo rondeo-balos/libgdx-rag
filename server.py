@@ -1,19 +1,11 @@
-"""
-server.py — LibGDX RAG FastAPI Server
-
-Loads the pre-built ChromaDB index and exposes it as an HTTP API.
-Connect this to Continue.dev, curl, or any HTTP client.
-
-Usage:
-    uvicorn server:app --host 0.0.0.0 --port 8000
-"""
-
 import os
+import json
 import time
 import uuid
 
 import chromadb
 from fastapi import FastAPI, HTTPException
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from llama_index.core import VectorStoreIndex, Settings
 from llama_index.embeddings.ollama import OllamaEmbedding
@@ -166,12 +158,55 @@ async def openai_chat(request: OAIChatRequest):
     # Run through RAG pipeline
     response = query_engine.query(user_message)
     answer = str(response)
+    completion_id = f"chatcmpl-{uuid.uuid4().hex[:12]}"
+    created = int(time.time())
 
-    # Return in OpenAI format
+    # ─── Streaming response (SSE) ────────────────────────────────────
+    if request.stream:
+        def generate_stream():
+            # Send the full answer as a single chunk
+            chunk = {
+                "id": completion_id,
+                "object": "chat.completion.chunk",
+                "created": created,
+                "model": "libgdx-rag",
+                "choices": [
+                    {
+                        "index": 0,
+                        "delta": {"role": "assistant", "content": answer},
+                        "finish_reason": None,
+                    }
+                ],
+            }
+            yield f"data: {json.dumps(chunk)}\n\n"
+
+            # Send the stop chunk
+            stop_chunk = {
+                "id": completion_id,
+                "object": "chat.completion.chunk",
+                "created": created,
+                "model": "libgdx-rag",
+                "choices": [
+                    {
+                        "index": 0,
+                        "delta": {},
+                        "finish_reason": "stop",
+                    }
+                ],
+            }
+            yield f"data: {json.dumps(stop_chunk)}\n\n"
+            yield "data: [DONE]\n\n"
+
+        return StreamingResponse(
+            generate_stream(),
+            media_type="text/event-stream",
+        )
+
+    # ─── Non-streaming response ──────────────────────────────────────
     return {
-        "id": f"chatcmpl-{uuid.uuid4().hex[:12]}",
+        "id": completion_id,
         "object": "chat.completion",
-        "created": int(time.time()),
+        "created": created,
         "model": "libgdx-rag",
         "choices": [
             {
