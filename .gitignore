@@ -1,0 +1,26 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+
+# Vector store
+chroma_db/
+
+# Knowledge base (too large for git)
+knowledge/
+
+# Temp repos used during collection
+scripts/.tmp/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Docker
+.docker/

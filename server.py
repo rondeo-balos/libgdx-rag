@@ -1,0 +1,112 @@
+"""
+server.py — LibGDX RAG FastAPI Server
+
+Loads the pre-built ChromaDB index and exposes it as an HTTP API.
+Connect this to Continue.dev, curl, or any HTTP client.
+
+Usage:
+    uvicorn server:app --host 0.0.0.0 --port 8000
+"""
+
+import os
+
+import chromadb
+from fastapi import FastAPI, HTTPException
+from pydantic import BaseModel
+from llama_index.core import VectorStoreIndex, Settings
+from llama_index.embeddings.ollama import OllamaEmbedding
+from llama_index.llms.ollama import Ollama
+from llama_index.vector_stores.chroma import ChromaVectorStore
+
+# ─── Configuration ───────────────────────────────────────────────────────────
+
+CHROMA_DIR = "chroma_db"
+COLLECTION_NAME = "libgdx"
+OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
+EMBED_MODEL = "nomic-embed-text"
+LLM_MODEL = os.getenv("LLM_MODEL", "qwen3.5:4b")
+TOP_K = 5  # Number of chunks to retrieve per query
+
+# ─── Setup Models ────────────────────────────────────────────────────────────
+
+embed_model = OllamaEmbedding(
+    model_name=EMBED_MODEL,
+    base_url=OLLAMA_BASE_URL,
+)
+
+llm = Ollama(
+    model=LLM_MODEL,
+    base_url=OLLAMA_BASE_URL,
+    request_timeout=120.0,
+)
+
+Settings.embed_model = embed_model
+Settings.llm = llm
+
+# ─── Load Index ──────────────────────────────────────────────────────────────
+
+db = chromadb.PersistentClient(path=CHROMA_DIR)
+
+try:
+    collection = db.get_collection(COLLECTION_NAME)
+except ValueError:
+    raise RuntimeError(
+        f"Collection '{COLLECTION_NAME}' not found in {CHROMA_DIR}. "
+        "Run `python ingest.py` first."
+    )
+
+vector_store = ChromaVectorStore(chroma_collection=collection)
+index = VectorStoreIndex.from_vector_store(vector_store)
+query_engine = index.as_query_engine(similarity_top_k=TOP_K)
+
+print(f"✅ Loaded collection '{COLLECTION_NAME}' with {collection.count()} chunks")
+print(f"🤖 LLM: {LLM_MODEL} via {OLLAMA_BASE_URL}")
+
+# ─── FastAPI App ─────────────────────────────────────────────────────────────
+
+app = FastAPI(
+    title="LibGDX RAG Assistant",
+    description="Ask questions about LibGDX — answers grounded in real docs and source code.",
+    version="0.1.0",
+)
+
+
+class ChatRequest(BaseModel):
+    prompt: str
+
+
+class ChatResponse(BaseModel):
+    answer: str
+    sources: list[str]
+
+
+@app.get("/health")
+async def health():
+    return {
+        "status": "ok",
+        "collection": COLLECTION_NAME,
+        "chunks": collection.count(),
+        "llm": LLM_MODEL,
+    }
+
+
+@app.post("/chat", response_model=ChatResponse)
+async def chat(request: ChatRequest):
+    if not request.prompt.strip():
+        raise HTTPException(status_code=400, detail="Prompt cannot be empty")
+
+    response = query_engine.query(request.prompt)
+
+    # Extract source file paths from the response metadata
+    sources = []
+    if response.source_nodes:
+        for node in response.source_nodes:
+            meta = node.metadata
+            source = meta.get("file_name", meta.get("file_path", "unknown"))
+            if source not in sources:
+                sources.append(source)
+
+    return ChatResponse(
+        answer=str(response),
+        sources=sources,
+    )

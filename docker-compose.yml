@@ -1,0 +1,13 @@
+services:
+  rag:
+    build: .
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./knowledge:/app/knowledge
+      - ./chroma_db:/app/chroma_db
+    environment:
+      - OLLAMA_BASE_URL=http://host.docker.internal:11434
+    # On Linux, uncomment the line below and remove the OLLAMA_BASE_URL above:
+    # network_mode: host
+    restart: unless-stopped
