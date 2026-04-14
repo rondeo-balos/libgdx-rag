@@ -29,7 +29,7 @@ Add your RAG server as a model:
 
 ```yaml
 models:
-  - title: "LibGDX RAG"
+  - name: "LibGDX RAG"
     provider: openai
     model: libgdx-rag
     apiBase: "http://YOUR_VPS_IP:11111/v1"
@@ -82,13 +82,13 @@ You can have both the RAG model and a regular Ollama model side by side:
 
 ```yaml
 models:
-  - title: "LibGDX RAG"
+  - name: "LibGDX RAG"
     provider: openai
     model: libgdx-rag
     apiBase: "http://YOUR_VPS_IP:11111/v1"
     apiKey: "not-needed"
 
-  - title: "Qwen (No RAG)"
+  - name: "Qwen (No RAG)"
     provider: ollama
     model: qwen3.5:4b
     apiBase: "http://YOUR_VPS_IP:11434"
