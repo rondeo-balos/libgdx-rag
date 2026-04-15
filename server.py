@@ -86,10 +86,15 @@ async def get_embedding(text: str) -> list[float]:
 
 async def retrieve_context(query: str, top_k: int = TOP_K) -> str:
     """Embed the query and search ChromaDB for relevant LibGDX documentation."""
+    # Truncate long queries — Continue can send 30K+ chars with workspace context.
+    # First ~2000 chars is more than enough to capture intent for RAG search.
+    MAX_EMBED_CHARS = 2000
+    embed_query = query[:MAX_EMBED_CHARS] if len(query) > MAX_EMBED_CHARS else query
+
     try:
-        query_embedding = await get_embedding(query)
+        query_embedding = await get_embedding(embed_query)
     except Exception as e:
-        logger.warning(f"Failed to embed query ({len(query)} chars): {e}")
+        logger.warning(f"Failed to embed query ({len(embed_query)} chars, truncated from {len(query)}): {e}")
         return ""
 
     results = collection.query(
