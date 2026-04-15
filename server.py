@@ -79,7 +79,9 @@ async def get_embedding(text: str) -> list[float]:
             f"{OLLAMA_BASE_URL}/v1/embeddings",
             json={"model": EMBED_MODEL, "input": text},
         )
-        response.raise_for_status()
+        if response.status_code != 200:
+            body = response.text[:500]
+            raise RuntimeError(f"Ollama embed returned {response.status_code}: {body}")
         data = response.json()
         return data["data"][0]["embedding"]
 
