@@ -73,15 +73,15 @@ app = FastAPI(
 # ─── RAG Retrieval ───────────────────────────────────────────────────────────
 
 async def get_embedding(text: str) -> list[float]:
-    """Get embedding vector from Ollama's embedding API."""
+    """Get embedding vector from Ollama's OpenAI-compatible embeddings API."""
     async with httpx.AsyncClient(timeout=30.0) as client:
         response = await client.post(
-            f"{OLLAMA_BASE_URL}/api/embed",
+            f"{OLLAMA_BASE_URL}/v1/embeddings",
             json={"model": EMBED_MODEL, "input": text},
         )
         response.raise_for_status()
         data = response.json()
-        return data["embeddings"][0]
+        return data["data"][0]["embedding"]
 
 
 async def retrieve_context(query: str, top_k: int = TOP_K) -> str:
@@ -89,7 +89,7 @@ async def retrieve_context(query: str, top_k: int = TOP_K) -> str:
     try:
         query_embedding = await get_embedding(query)
     except Exception as e:
-        logger.warning(f"Failed to embed query: {e}")
+        logger.warning(f"Failed to embed query ({len(query)} chars): {e}")
         return ""
 
     results = collection.query(
@@ -266,6 +266,23 @@ async def proxy_chat_completions(request: Request):
         logger.info(f"🔧 Tools sent by client: {tool_names}")
     else:
         logger.info("⚠️  No tools in request — client did not send any tool definitions")
+
+    # ─── Filter tools for small models ───────────────────────────────
+    # A 4B model can't reliably handle 13+ tools. Keep only the essentials.
+    ESSENTIAL_TOOLS = {
+        "read_file",
+        "edit_existing_file",
+        "create_new_file",
+        "ls",
+        "grep_search",
+        "run_terminal_command",
+    }
+    if tools:
+        filtered = [t for t in tools if t.get("function", {}).get("name") in ESSENTIAL_TOOLS]
+        if len(filtered) < len(tools):
+            logger.info(f"🔧 Filtered tools: {len(tools)} → {len(filtered)} (keeping essentials for small model)")
+        body["tools"] = filtered
+        tools = filtered
 
     # Log the roles in the conversation
     roles = [m.get("role", "?") for m in messages]
