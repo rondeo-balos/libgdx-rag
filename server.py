@@ -32,7 +32,8 @@ llm = Ollama(
     model=LLM_MODEL,
     base_url=OLLAMA_BASE_URL,
     request_timeout=300.0,
-    num_ctx=4096,
+    context_window=4096,
+    additional_kwargs={"num_ctx": 4096},
 )
 
 Settings.embed_model = embed_model
