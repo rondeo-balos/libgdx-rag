@@ -258,6 +258,19 @@ async def proxy_chat_completions(request: Request):
     messages = body.get("messages", [])
     is_streaming = body.get("stream", False)
 
+    # ─── Debug: log what Continue sends ──────────────────────────────
+    tools = body.get("tools", [])
+    logger.info(f"🔧 Request: stream={is_streaming}, tools={len(tools)}, messages={len(messages)}")
+    if tools:
+        tool_names = [t.get("function", {}).get("name", "?") for t in tools]
+        logger.info(f"🔧 Tools sent by client: {tool_names}")
+    else:
+        logger.info("⚠️  No tools in request — client did not send any tool definitions")
+
+    # Log the roles in the conversation
+    roles = [m.get("role", "?") for m in messages]
+    logger.info(f"💬 Message roles: {roles}")
+
     # ─── RAG enrichment ──────────────────────────────────────────────
     user_query = extract_user_query(messages)
     if user_query.strip():
