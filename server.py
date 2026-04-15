@@ -296,11 +296,109 @@ async def proxy_chat_completions(request: Request):
 
     # ─── Forward to Ollama ───────────────────────────────────────────
     ollama_url = f"{OLLAMA_BASE_URL}/v1/chat/completions"
+    has_tools = bool(body.get("tools"))
 
-    if is_streaming:
+    # IMPORTANT: Ollama doesn't return tool_calls properly in streaming mode.
+    # When tools are present, we force non-streaming to Ollama so tool_calls
+    # work, then convert the response back to SSE for the client.
+    if has_tools:
+        logger.info("🔧 Tools present — forcing non-streaming to Ollama for tool_call support")
+        body["stream"] = False
+        return await _proxy_with_tools(ollama_url, body, client_wants_stream=is_streaming)
+    elif is_streaming:
         return await _proxy_streaming(ollama_url, body)
     else:
         return await _proxy_non_streaming(ollama_url, body)
+
+
+async def _proxy_with_tools(url: str, body: dict, client_wants_stream: bool):
+    """
+    Forward a request with tools to Ollama (always non-streaming),
+    then return the response in whatever format the client expects.
+    """
+    async with httpx.AsyncClient(timeout=OLLAMA_TIMEOUT) as client:
+        try:
+            response = await client.post(url, json=body)
+            response.raise_for_status()
+        except httpx.TimeoutException:
+            raise HTTPException(
+                status_code=504,
+                detail="Ollama request timed out. The model may still be loading.",
+            )
+        except httpx.HTTPStatusError as e:
+            raise HTTPException(
+                status_code=e.response.status_code,
+                detail=f"Ollama error: {e.response.text}",
+            )
+
+    data = response.json()
+
+    # Log whether tool_calls were returned
+    choices = data.get("choices", [])
+    if choices:
+        msg = choices[0].get("message", {})
+        tool_calls = msg.get("tool_calls", [])
+        content_preview = (msg.get("content", "") or "")[:80]
+        if tool_calls:
+            names = [tc.get("function", {}).get("name", "?") for tc in tool_calls]
+            logger.info(f"✅ Ollama returned tool_calls: {names}")
+        else:
+            logger.info(f"💬 Ollama returned text (no tool_calls): {content_preview}...")
+
+    # If the client wanted streaming, convert the response to SSE format
+    if client_wants_stream:
+        return _json_to_sse(data)
+    else:
+        return JSONResponse(content=data, status_code=response.status_code)
+
+
+def _json_to_sse(completion: dict) -> StreamingResponse:
+    """Convert a complete chat completion response into SSE chunks for streaming clients."""
+    message = completion.get("choices", [{}])[0].get("message", {})
+    completion_id = completion.get("id", "chatcmpl-unknown")
+    created = completion.get("created", 0)
+    model = completion.get("model", "unknown")
+
+    def generate():
+        # Send the full message as a single SSE chunk
+        chunk = {
+            "id": completion_id,
+            "object": "chat.completion.chunk",
+            "created": created,
+            "model": model,
+            "choices": [
+                {
+                    "index": 0,
+                    "delta": {},
+                    "finish_reason": None,
+                }
+            ],
+        }
+
+        # Build the delta with whatever the message contains
+        delta = {"role": "assistant"}
+        if message.get("content"):
+            delta["content"] = message["content"]
+        if message.get("tool_calls"):
+            delta["tool_calls"] = message["tool_calls"]
+        if message.get("reasoning"):
+            delta["reasoning"] = message["reasoning"]
+
+        chunk["choices"][0]["delta"] = delta
+        chunk["choices"][0]["finish_reason"] = completion.get("choices", [{}])[0].get("finish_reason")
+
+        yield f"data: {json.dumps(chunk)}\n\n"
+        yield "data: [DONE]\n\n"
+
+    return StreamingResponse(
+        generate(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )
 
 
 async def _proxy_non_streaming(url: str, body: dict) -> JSONResponse:
