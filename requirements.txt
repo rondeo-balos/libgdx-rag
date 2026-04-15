@@ -1,7 +1,10 @@
-llama-index==0.12.*
-llama-index-llms-ollama
-llama-index-embeddings-ollama
-llama-index-vector-stores-chroma
+# ─── Server (RAG proxy) ──────────────────────────────────────
 chromadb
 fastapi
 uvicorn[standard]
+httpx
+
+# ─── Ingestion pipeline ──────────────────────────────────────
+llama-index==0.12.*
+llama-index-embeddings-ollama
+llama-index-vector-stores-chroma
