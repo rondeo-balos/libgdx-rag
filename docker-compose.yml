@@ -8,6 +8,7 @@ services:
       - ./chroma_db:/app/chroma_db
     environment:
       - OLLAMA_BASE_URL=http://host.docker.internal:11434
+      - LLM_MODEL=phi3.5:3.8b
     extra_hosts:
       - "host.docker.internal:host-gateway"
     restart: unless-stopped
